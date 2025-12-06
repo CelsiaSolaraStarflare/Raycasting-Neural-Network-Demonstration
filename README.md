@@ -1,166 +1,119 @@
-Raycasting Neuroevolution Cars
+# Raycasting Neuroevolution Cars
 
-A fully in-browser simulation of self-driving cars using raycasting, genetic algorithms, and a tiny neural network, all running in pure HTML + JavaScript.
+A browser-based simulation demonstrating how simple agents can learn to drive using raycasting sensors and neuroevolution. Everything runs inside a single HTML file using only the HTML5 Canvas and vanilla JavaScript.
 
-This project visualizes how simple agents learn to navigate a track using simulated distance sensors and evolutionary selection—no external libraries needed.
+---
 
-🚗 Features
-🌐 Pure HTML/JS Implementation
+## 🚗 Overview
 
-No frameworks required.
+This project simulates a population of cars navigating a custom track. Each car uses:
 
-Just open raycasting.html in a browser and it runs instantly.
+* **Raycasting sensors** to detect track boundaries
+* A small **neural network** for decision‑making
+* **Genetic algorithms** for improvement over generations
 
-🧠 Tiny Neural Network
+Cars drive forward at a constant speed and can only steer left or right. They crash when their polygon intersects the track borders. When all cars in a generation crash, a new generation is produced from the best-performing ones.
 
-Each car has:
+---
 
-7 distance sensors (raycasts)
+## ✨ Features
 
-8 hidden neurons
+### Pure JS & HTML
 
-2 outputs (left-steer, right-steer)
+* No libraries or dependencies
+* Runs instantly in any modern browser
 
-All networks mutate during evolution. No backpropagation—only neuroevolution.
+### Neural Network
 
-🔬 Evolutionary Training (Genetic Algorithm)
+* Inputs: 7 ray distances
+* Hidden Layer: 8 neurons
+* Outputs: steering signals
+* Activation: Sigmoid
+* Mutations applied to weights every generation
 
-Population: 500 cars per generation
+### Genetic Algorithm
 
-Selection: Top performers become parents
+* Population size: 500
+* Top ~10% chosen as parents
+* Best genome is preserved
+* Children are mutated clones of parents
 
-Mutation: Slight random changes to weights
+### Visual Components
 
-Goal: Survive as long as possible without crashing
+* Sensors colored based on distance
+* Leader car and its sensors highlighted
+* Beautiful custom S‑shaped track with inner/outer loops
+* Real-time stats: Generation, Alive, Best Fitness, Speed
+* Slider for 1×–300× simulation speed
 
-The best model each generation is automatically kept and used to spawn children.
+---
 
-🎯 Visual Raycasting
+## 🎮 How It Works
 
-Cars shoot rays outward to detect walls.
-Color-coded:
+### Raycasting
 
-Red → very close to wall
+Each car emits evenly distributed rays. The distance to the nearest border becomes the neural network input.
 
-Yellow → moderate distance
+### Decision Making
 
-No line → no obstacle detected in range
+The neural network outputs two values. Their difference determines steering direction.
 
-🚀 Speed Control
+### Movement
 
-Adjust training speed from 1x to 300x using the slider.
-This makes evolution way faster while still letting you watch the progress.
+Cars move forward automatically and adjust their angle based on NN output.
 
-🏁 Custom Race Track
+### Fitness
 
-A hand-crafted flowing S-shaped track with:
+Each frame the car survives without crashing, its fitness increases.
 
-Outer boundaries
+### Evolution
 
-Inner boundaries
+Once all cars crash:
 
-Midline glow
+1. Sort by fitness
+2. Select top performers
+3. Clone brains
+4. Apply weight mutations
+5. Start new generation
 
-Starting line
+---
 
-Rendered directly with Canvas 2D API.
+## ▶️ Running the Project
 
-🧩 How It Works
-1. Raycasting Sensors
+Just open the `raycasting.html` file in any browser. No local server needed.
 
-Each car shoots 7 rays in a spread (≈ 162°) and receives values from 0 to 1 based on collision distance.
+---
 
-2. Neural Network Forward Pass
+## 📁 File Structure
 
-Inputs → 8 hidden neurons → 2 outputs
-Outputs determine steering direction:
+The entire demo is self-contained:
 
-Output[1] – Output[0] → steering force
-
-3. Movement & Collisions
-
-The car moves forward at constant speed and rotates via its NN output.
-If its polygon intersects any border → crash.
-
-4. Fitness
-
-Cars score fitness based on distance traveled.
-
-5. Generation Cycle
-
-When all cars crash:
-
-Sort by fitness
-
-Keep top ~10% as parents
-
-Clone + mutate into next generation
-
-Display best fitness & generation count
-
-🖼️ UI Overview
-
-The top stats show:
-
-Generation
-
-Alive Cars
-
-Best Fitness Ever Achieved
-
-Simulation Speed
-
-The lead car highlights:
-
-A bright cyan body
-
-Sensor rays
-
-All other cars are drawn in faint cyan.
-
-▶️ How to Run
-
-Just open:
-
+```
 raycasting.html
+  ├─ Canvas drawing
+  ├─ Track geometry
+  ├─ Neuroevolution logic
+  ├─ Neural network class
+  ├─ Car physics & collision
+  └─ UI & speed controls
+```
 
+---
 
-in any modern browser (Chrome recommended).
+## 🌱 Ideas for Future Improvement
 
-No server needed. No build steps.
+* Adjustable mutation rates
+* Save/load trained networks
+* Obstacles or traffic opponents
+* Multi-lap fitness scoring
+* Replay mode for best cars
 
-🔧 Project Structure
+---
 
-Everything is contained inside one HTML file:
+## 📜 License
 
-raycasting.html
-│
-├─ Canvas rendering
-├─ Track builder
-├─ Car physics + collision polygons
-├─ Raycasting logic
-├─ Neural network (forward pass + mutation)
-├─ Genetic algorithm
-└─ UI handling
+This project is free to use, modify, and learn from.
 
-📚 Future Extensions (Optional Ideas)
+---
 
-If you wanna expand:
-
-Add speed acceleration/braking
-
-Add multi-lap fitness
-
-Save/load best brain to localStorage
-
-Add obstacles or traffic
-
-Add drift physics
-
-Visualize the NN weights in real-time
-
-Tell me if you want any of these implemented and I’ll code them with you 💞.
-
-❤️ Credits
-
-Created fully in vanilla HTML5 Canvas + JavaScript as an educational and experimental simulation for neuroevolution.
+If you'd like a more technical, cute, or gamer-styled README, I can rewrite it anytime!
