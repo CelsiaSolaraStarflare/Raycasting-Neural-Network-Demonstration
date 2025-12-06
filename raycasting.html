@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Raycasting Neuroevolution Cars</title>
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background: radial-gradient(circle at 20% 20%, #1f1f28, #0f0f14 55%);
+            color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 16px;
+            gap: 8px;
+        }
+        h2 { letter-spacing: 1px; margin: 4px 0; }
+        canvas {
+            border: 2px solid #444;
+            background: #1b1b1f;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        #ui {
+            width: 900px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            background: #141419;
+            border: 1px solid #292938;
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+        .stat {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 140px;
+        }
+        .label { color: #888; font-size: 0.85rem; }
+        .value { font-size: 1.2rem; font-weight: bold; color: #7df9ff; }
+        input[type="range"] { width: 200px; accent-color: #7df9ff; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>Self-Driving Cars (Raycasting + Neuroevolution)</h2>
+    <canvas id="carCanvas" width="900" height="540"></canvas>
+    <div id="ui">
+        <div class="stat">
+            <div class="label">Generation</div>
+            <div id="genDisplay" class="value">1</div>
+        </div>
+        <div class="stat">
+            <div class="label">Alive</div>
+            <div id="aliveDisplay" class="value">0</div>
+        </div>
+        <div class="stat">
+            <div class="label">Best Fitness</div>
+            <div id="bestDisplay" class="value">0</div>
+        </div>
+        <div class="stat">
+            <div class="label">Sim Speed: <span id="speedDisplay">1x</span></div>
+            <input type="range" id="speedSlider" min="1" max="300" value="1">
+        </div>
+    </div>
+
+<script>
+// Config
+const POPULATION = 500;
+const MUTATION_RATE = 0.08;
+const SENSOR_COUNT = 7;
+const SENSOR_LENGTH = 180;
+const SENSOR_SPREAD = Math.PI * 0.9;
+const GAME_WIDTH = 900;
+const GAME_HEIGHT = 540;
+
+// Helpers
+const lerp = (A, B, t) => A + (B - A) * t;
+function getIntersection(A, B, C, D) {
+    const tTop = (D.x - C.x) * (A.y - C.y) - (D.y - C.y) * (A.x - C.x);
+    const uTop = (C.y - A.y) * (A.x - B.x) - (C.x - A.x) * (A.y - B.y);
+    const bottom = (D.y - C.y) * (B.x - A.x) - (D.x - C.x) * (B.y - A.y);
+    if (bottom === 0) return null;
+    const t = tTop / bottom;
+    const u = uTop / bottom;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        return { x: lerp(A.x, B.x, t), y: lerp(A.y, B.y, t), offset: t };
+    }
+    return null;
+}
+
+// Neural net: SENSOR_COUNT inputs -> 8 hidden -> 2 outputs (left/right)
+class NeuralNetwork {
+    constructor(brain) {
+        if (brain) {
+            this.ih = JSON.parse(JSON.stringify(brain.ih));
+            this.ho = JSON.parse(JSON.stringify(brain.ho));
+        } else {
+            this.ih = Array.from({length: SENSOR_COUNT + 1}, () =>
+                Array.from({length: 8}, () => Math.random() * 2 - 1));
+            this.ho = Array.from({length: 2}, () =>
+                Array.from({length: 9}, () => Math.random() * 2 - 1));
+        }
+    }
+    sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+    predict(inputs) {
+        const inputBias = [...inputs, 1];
+        const hidden = Array.from({length: 8}, (_, j) => {
+            let sum = 0;
+            for (let i = 0; i < inputBias.length; i++) sum += inputBias[i] * this.ih[i][j];
+            return this.sigmoid(sum);
+        });
+        const hiddenBias = [...hidden, 1];
+        return Array.from({length: 2}, (_, j) => {
+            let sum = 0;
+            for (let i = 0; i < hiddenBias.length; i++) sum += hiddenBias[i] * this.ho[j][i];
+            return this.sigmoid(sum);
+        });
+    }
+    mutate() {
+        for (let i = 0; i < this.ih.length; i++) {
+            for (let j = 0; j < this.ih[i].length; j++) {
+                if (Math.random() < MUTATION_RATE) this.ih[i][j] += Math.random() * 0.4 - 0.2;
+            }
+        }
+        for (let i = 0; i < this.ho.length; i++) {
+            for (let j = 0; j < this.ho[i].length; j++) {
+                if (Math.random() < MUTATION_RATE) this.ho[i][j] += Math.random() * 0.4 - 0.2;
+            }
+        }
+    }
+}
+
+class Car {
+    constructor(brain) {
+        this.x = 150;
+        this.y = 440;
+        this.width = 16;
+        this.height = 24;
+        this.angle = 0; // Facing right
+        this.speed = 3;
+        this.damaged = false;
+        this.brain = new NeuralNetwork(brain);
+        this.fitness = 0;
+        this.sensors = [];
+        this.polygon = this.createPolygon();
+    }
+
+    update(borders) {
+        if (!this.damaged) {
+            this.readSensors(borders);
+            this.think();
+            this.move();
+            this.polygon = this.createPolygon();
+            this.damaged = this.checkCollision(borders);
+            if (!this.damaged) this.fitness += this.speed;
+        }
+    }
+
+    think() {
+        const outputs = this.brain.predict(this.sensors);
+        const steer = (outputs[1] - outputs[0]) * 0.08;
+        this.angle += steer;
+    }
+
+    readSensors(borders) {
+        this.sensors = [];
+        for (let i = 0; i < SENSOR_COUNT; i++) {
+            const rayAngle = lerp(
+                this.angle - SENSOR_SPREAD / 2,
+                this.angle + SENSOR_SPREAD / 2,
+                SENSOR_COUNT === 1 ? 0.5 : i / (SENSOR_COUNT - 1)
+            );
+            const start = { x: this.x, y: this.y };
+            const end = {
+                x: this.x + Math.cos(rayAngle) * SENSOR_LENGTH,
+                y: this.y + Math.sin(rayAngle) * SENSOR_LENGTH
+            };
+            const touches = [];
+            for (const border of borders) {
+                const hit = getIntersection(start, end, border[0], border[1]);
+                if (hit) touches.push(hit);
+            }
+            if (touches.length === 0) this.sensors.push(0);
+            else {
+                const closest = Math.min(...touches.map(t => t.offset));
+                this.sensors.push(1 - closest);
+            }
+        }
+    }
+
+    move() {
+        this.x += Math.cos(this.angle) * this.speed;
+        this.y += Math.sin(this.angle) * this.speed;
+    }
+
+    createPolygon() {
+        const points = [];
+        const rad = Math.hypot(this.width, this.height) / 2;
+        const alpha = Math.atan2(this.width, this.height);
+        points.push({ x: this.x - Math.sin(this.angle - alpha) * rad, y: this.y - Math.cos(this.angle - alpha) * rad });
+        points.push({ x: this.x - Math.sin(this.angle + alpha) * rad, y: this.y - Math.cos(this.angle + alpha) * rad });
+        points.push({ x: this.x - Math.sin(Math.PI + this.angle - alpha) * rad, y: this.y - Math.cos(Math.PI + this.angle - alpha) * rad });
+        points.push({ x: this.x - Math.sin(Math.PI + this.angle + alpha) * rad, y: this.y - Math.cos(Math.PI + this.angle + alpha) * rad });
+        return points;
+    }
+
+    checkCollision(borders) {
+        for (const border of borders) {
+            for (let i = 0; i < this.polygon.length; i++) {
+                const next = (i + 1) % this.polygon.length;
+                if (getIntersection(this.polygon[i], this.polygon[next], border[0], border[1])) return true;
+            }
+        }
+        return false;
+    }
+
+    draw(ctx, solid = false) {
+        if (this.damaged) return;
+        ctx.fillStyle = solid ? '#7df9ff' : 'rgba(125, 249, 255, 0.25)';
+        ctx.beginPath();
+        ctx.moveTo(this.polygon[0].x, this.polygon[0].y);
+        for (let i = 1; i < this.polygon.length; i++) ctx.lineTo(this.polygon[i].x, this.polygon[i].y);
+        ctx.fill();
+    }
+
+    drawSensors(ctx) {
+        ctx.lineWidth = 1;
+        for (let i = 0; i < SENSOR_COUNT; i++) {
+            const rayAngle = lerp(
+                this.angle - SENSOR_SPREAD / 2,
+                this.angle + SENSOR_SPREAD / 2,
+                SENSOR_COUNT === 1 ? 0.5 : i / (SENSOR_COUNT - 1)
+            );
+            let end = {
+                x: this.x + Math.cos(rayAngle) * SENSOR_LENGTH,
+                y: this.y + Math.sin(rayAngle) * SENSOR_LENGTH
+            };
+            if (this.sensors[i] < 1) {
+                const len = SENSOR_LENGTH * (1 - this.sensors[i]);
+                end = { x: this.x + Math.cos(rayAngle) * len, y: this.y + Math.sin(rayAngle) * len };
+            }
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.strokeStyle = this.sensors[i] > 0.6 ? '#ff6b6b' : '#ffe082';
+            ctx.stroke();
+        }
+    }
+}
+
+// Engine state
+const canvas = document.getElementById('carCanvas');
+const ctx = canvas.getContext('2d');
+const slider = document.getElementById('speedSlider');
+const uiGen = document.getElementById('genDisplay');
+const uiAlive = document.getElementById('aliveDisplay');
+const uiBest = document.getElementById('bestDisplay');
+const uiSpeed = document.getElementById('speedDisplay');
+
+let cars = [];
+let saved = [];
+let borders = [];
+let outerLoop = [];
+let innerLoop = [];
+let startLine = null;
+let generation = 1;
+let bestFitness = 0;
+
+function buildTrack() {
+    // flowing S-shape with a fast back straight and tighter infield
+    outerLoop = [
+        {x:110,y:460},{x:760,y:470},{x:840,y:400},{x:810,y:320},
+        {x:880,y:220},{x:800,y:90},{x:580,y:60},{x:430,y:115},
+        {x:300,y:80},{x:150,y:100},{x:110,y:190},{x:180,y:260},
+        {x:120,y:330},{x:100,y:420}
+    ];
+    innerLoop = [
+        {x:210,y:410},{x:690,y:410},{x:730,y:360},{x:710,y:310},
+        {x:760,y:230},{x:700,y:150},{x:570,y:130},{x:470,y:170},
+        {x:340,y:135},{x:230,y:155},{x:200,y:200},{x:250,y:240},
+        {x:210,y:300},{x:190,y:360}
+    ];
+    startLine = [{x:160,y:445},{x:160,y:385}];
+
+    borders = [];
+    const loopToSegments = pts => {
+        for (let i = 0; i < pts.length; i++) {
+            const next = (i + 1) % pts.length;
+            borders.push([pts[i], pts[next]]);
+        }
+    };
+    loopToSegments(outerLoop);
+    loopToSegments(innerLoop);
+}
+
+function setup() {
+    buildTrack();
+    for (let i = 0; i < POPULATION; i++) cars.push(new Car());
+    requestAnimationFrame(loop);
+}
+
+function nextGeneration() {
+    saved.sort((a, b) => b.fitness - a.fitness);
+    bestFitness = Math.max(bestFitness, saved[0].fitness);
+    uiBest.innerText = bestFitness.toFixed(0);
+    generation += 1;
+    uiGen.innerText = generation;
+
+    const parents = saved.slice(0, Math.max(5, Math.floor(POPULATION * 0.1)));
+    cars = [];
+    cars.push(new Car(parents[0].brain));
+    while (cars.length < POPULATION) {
+        const parent = parents[cars.length % parents.length];
+        const child = new Car(parent.brain);
+        child.brain.mutate();
+        cars.push(child);
+    }
+    saved = [];
+}
+
+function loop() {
+    const simSpeed = parseInt(slider.value, 10);
+    uiSpeed.innerText = simSpeed + "x";
+
+    for (let step = 0; step < simSpeed; step++) {
+        for (const car of cars) car.update(borders);
+        const alive = cars.filter(c => !c.damaged);
+        if (alive.length === 0) {
+            saved = [...cars];
+            nextGeneration();
+            break;
+        }
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+}
+
+function drawTrack() {
+    ctx.save();
+
+    const asphalt = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
+    asphalt.addColorStop(0, '#1c1f2b');
+    asphalt.addColorStop(0.5, '#191b24');
+    asphalt.addColorStop(1, '#14151b');
+
+    const roadPath = new Path2D();
+    outerLoop.forEach((p, i) => i === 0 ? roadPath.moveTo(p.x, p.y) : roadPath.lineTo(p.x, p.y));
+    roadPath.closePath();
+    innerLoop.forEach((p, i) => i === 0 ? roadPath.moveTo(p.x, p.y) : roadPath.lineTo(p.x, p.y));
+    roadPath.closePath();
+    ctx.fillStyle = asphalt;
+    ctx.fill(roadPath, 'evenodd');
+
+    const strokeLoop = (pts, color, width) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.closePath();
+        ctx.stroke();
+    };
+
+    strokeLoop(outerLoop, '#2c2f46', 12);
+    strokeLoop(innerLoop, '#2c2f46', 12);
+    strokeLoop(outerLoop, '#cdd2ec', 3);
+    strokeLoop(innerLoop, '#cdd2ec', 3);
+
+    const midLen = Math.min(outerLoop.length, innerLoop.length);
+    if (midLen > 1) {
+        const midline = Array.from({ length: midLen }, (_, i) => {
+            const outer = outerLoop[i];
+            const inner = innerLoop[i];
+            return { x: (outer.x + inner.x) / 2, y: (outer.y + inner.y) / 2 };
+        });
+        ctx.globalAlpha = 0.12;
+        ctx.filter = 'blur(10px)';
+        strokeLoop(midline, '#7df9ff', 10);
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+    }
+
+    if (startLine) {
+        ctx.setLineDash([12, 8]);
+        ctx.strokeStyle = '#ff6b6b';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(startLine[0].x, startLine[0].y);
+        ctx.lineTo(startLine[1].x, startLine[1].y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+}
+
+function draw() {
+    ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    ctx.fillStyle = '#0f0f14';
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    drawTrack();
+
+    let lead = cars.find(c => !c.damaged);
+    if (!lead) lead = cars[0];
+
+    ctx.globalAlpha = 0.55;
+    cars.forEach(c => c.draw(ctx, false));
+    ctx.globalAlpha = 1;
+    if (lead && !lead.damaged) {
+        lead.draw(ctx, true);
+        lead.drawSensors(ctx);
+    }
+
+    uiAlive.innerText = cars.filter(c => !c.damaged).length;
+}
+
+setup();
+</script>
+</body>
+</html>
