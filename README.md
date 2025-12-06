@@ -2,6 +2,8 @@
 
 A browser-based simulation demonstrating how simple agents can learn to drive using raycasting sensors and neuroevolution. Everything runs inside a single HTML file using only the HTML5 Canvas and vanilla JavaScript.
 
+Copyright © Celsia Juilyn Fan.
+
 ---
 
 ## 🚗 Overview
