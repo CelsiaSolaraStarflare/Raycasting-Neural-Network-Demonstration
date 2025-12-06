@@ -112,8 +112,4 @@ raycasting.html
 
 ## 📜 License
 
-This project is free to use, modify, and learn from.
-
----
-
-If you'd like a more technical, cute, or gamer-styled README, I can rewrite it anytime!
+This is a open-sourced project that is free to use, modify, and learn from.
